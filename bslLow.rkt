@@ -5,6 +5,7 @@
 
 (provide 
  (rename-out [symb-def define-symbolic])
+ (rename-out [quick-def def])
  <
  >
  <=
@@ -22,22 +23,70 @@
 
 
 #;(define-syntax (symb-def stx)
+    (syntax-parse stx
+      [(_ (name arg:id ...) expr)
+       #:with n-tag (parse-bsl #'expr #'name)
+       #'(define (name arg ...) (local ((define saved arg))
+                                  (set! arg (local ((define-symbolic arg integer?))
+                                              (if (number? saved) saved arg)))) ... n-tag)]))
+
+#;(define-syntax (symb-def stx)
   (syntax-parse stx
     [(_ (name arg:id ...) expr)
-     ;; #:with (+arg +arg2 ...) (expand-args #'(arg arg2 ...))
      #:with n-tag (parse-bsl #'expr #'name)
-     #'(define (name arg ...) (local ((define saved arg))
-                                (set! arg (local ((define-symbolic arg integer?))
-            (if (number? saved) saved arg)))) ... n-tag)]))
+     #'(define-syntax (name stx)
+         (syntax-parse stx
+           [(_ app-arg (... ...))
+            #:with (inner-arg-id (... ...)) #'(arg ...)
+            #`(begin (define inner-arg-id app-arg) (... ...)
+                     (local ((define saved inner-arg-id))
+                       (set! inner-arg-id (local ((define-symbolic #,app-arg integer?))
+                                   (if (number? saved) saved inner-arg-id)))) (... ...)
+                     n-tag)]))]))
 
 (define-syntax (symb-def stx)
   (syntax-parse stx
     [(_ (name arg:id ...) expr)
-    #:with n-tag (parse-bsl #'expr #'name)
-    #'(define-syntax (name stx)
-        (syntax-parse stx
-            [(_ app-arg (... ...))
-             #`(begin (define arg app-arg) ...  (... ...) (displayln arg) ...)]))]))
+     #:with n-tag (parse-bsl #'expr #'name)
+     #'(define-syntax (name stx)
+         (syntax-parse stx
+           [(_ app-arg (... ...))
+            #:with (inner-arg-id (... ...)) #'(arg ...)
+            #`(begin (define-symbolic app-arg integer?) (... ...) (define inner-arg-id  app-arg) (... ...)
+                     app-arg (... ...))]))]))
+
+#;(define-for-syntax (make-define def-args^ body^)
+    (define/syntax-parse (def-args ...) def-args^)
+    (define/syntax-parse body body^)
+    (syntax-parser
+      [(_ app-args ...) #'(let ([def-args app-args] ...) body)]))
+
+#;(define-syntax (symb-def stx)
+    (syntax-parser
+      [(_ (name arg:id ...) expr)
+       #:with n-tag (parse-bsl #'expr #'name)
+       #'(define-syntax name
+           (make-define #'(arg ...) #'n-tag))]))
+
+(define-for-syntax (make-qdef def-args^ body^)
+  (define/syntax-parse (def-args ...) def-args^)
+  (define/syntax-parse body body^)
+  (syntax-parser
+    [(_ app-args ...) #'(let ([def-args app-args] ...) body)]))
+
+(define-syntax (quick-def stx)
+  (syntax-parser
+    [(_ (name args ...) body)
+     #'(define-syntax name
+         (make-qdef #'(args ...) #'body))]))
+
+
+
+#;(if (number? arg)
+      (void)
+      (set! arg
+            (local
+              (define-symbolic app-arg interger?))))
 
 
 
