@@ -1,4 +1,5 @@
 #lang scribble/sigplan
+
 @(require "utility.rkt")
 @title{"Vocab"}
 @itemlist[@(vocab "vairable" "a name that is bound")]
