@@ -1,16 +1,11 @@
 #lang rosette
 (require syntax/parse)
 (require (for-syntax syntax/parse))
-(require racket/syntax)
-(require (for-syntax (prefix-in rs: rosette)))
-(require (for-syntax (prefix-in rkt: racket/base)))
 (require (prefix-in blk: racket/block))
-(require syntax/wrap-modbeg)
 (require racket/stxparam)
 (require (for-syntax racket/stxparam))
 (provide 
  (rename-out [symb-def define-symbolic])
- (rename-out [quick-def def])
  (rename-out [get-path get-constraints])
  #%module-begin
  <
@@ -26,22 +21,34 @@
  quote
  get-inputs)
 
-
+;; Defines the parameter tar that is used to escape get-path
 (define-syntax-parameter tar #'#f)
+;; Creates a continuation-prompt-tag cont-prompt that can be used to escape
+;; get-path
 (define cont-prompt
-  (make-continuation-prompt-tag ))
+  (make-continuation-prompt-tag))
 
+;; Syntax -> Syntax
+;; Gets the restrictions on the symbolic values that can get you from the funtion
+;; you're currently in to the function you specify
 (define-syntax get-path
   (syntax-parser
     [(_ name app)
      #'(syntax-parameterize
-           [(tar #''name)] (call-with-continuation-prompt (λ() app #f) cont-prompt (λ(x) x)))]))
+           [(tar #''name)]
+         (call-with-continuation-prompt (λ () app #f) cont-prompt (λ (x) x)))]))
 
+;; Syntax -> Syntax
+;; Gets a set of inputs that will allow you to reach the desired function, if possible
+;; If it's not possible, return (unsat)
 (define-syntax get-inputs
   (syntax-parser
     [(_ name app)
      #'(solve(assert(get-path name app)))]))
 
+;; Syntax -> Syntax
+;; Creates a symbolic function, lets concrete values be, but makes any
+;; free identifiers into symbolic values
 (define-syntax (symb-def stx)
   (syntax-parse stx
     [(_ (name arg:id ...) expr)
@@ -63,7 +70,8 @@
             #:with b (syntax-parameter-value #'tar)
             #`(blk:block
                (define det-names det-args) (... ...)
-               (define undet-names (local ((define-symbolic undet-args integer?)) undet-args))
+               (define undet-names
+                 (local ((define-symbolic undet-args integer?)) undet-args))
                (... ...)
                (if (and (symbol? b)(symbol=? 'name b))
                    (abort-current-continuation cont-prompt (pc))
@@ -71,10 +79,10 @@
 
 ;; An argList is:
 ;; [Listof [Listof Syntax] [Listof Syntax] [Listof Syntax] [Listof Syntax]]
-;; Interpretation: The first list is the list of bound arguments.
-;; The second list is the list of names for the bound arguments.
-;; The third list is the list of unbound arguments
-;; The fourth list is the list of the names for those unbound arguments.
+;; Interpretation: The first list is the list of determined arguments.
+;; The second list is the list of names for the determined arguments.
+;; The third list is the list of undetermined arguments
+;; The fourth list is the list of the names for those undetermined arguments.
 
 
 ;; Syntax Syntax -> argList
@@ -117,28 +125,8 @@
   (define ret (split-list loi0 loa0))
   ret)
 
-(define-for-syntax (make-qdef def-args^ body^)
-  (define/syntax-parse (def-args ...) def-args^)
-  (define/syntax-parse body body^)
-  (syntax-parser
-    [(_ app-args ...) #'(let ([def-args app-args] ...) body)]))
-
-(define-syntax (quick-def stx)
-  (syntax-parser
-    [(_ (name args ...) body)
-     #'(define-syntax name
-         (make-qdef #'(args ...) #'body))]))
-
-
-
-#;(if (number? arg)
-      (void)
-      (set! arg
-            (local
-              (define-symbolic app-arg interger?))))
-
-
-
+;; Syntax -> Syntax
+;; parses things inside symbolic definitions with BSL-
 (define-for-syntax (parse-bsl expr cs)
   (syntax-parse expr
     ;if0, does "then" if the first argument is a 0, and else if not
@@ -215,10 +203,10 @@
      #:fail-when (and (not (identifier-binding #'nn)) #'nn) "Not bound"
      #'(nn args ...)]))
 
-
-(define-for-syntax (comp newFunc oldFunc)
-  (not (eq? (syntax->datum newFunc)
-            (syntax->datum oldFunc))))
+;; Syntax -> Boolean
+;; returns if both of the syntaxes passed in are intenionally equal.
+(define-for-syntax (comp new-func old-func)
+  (not (free-identifier=?  new-func old-func)))
 
 
 
