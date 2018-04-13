@@ -1,14 +1,18 @@
-#lang rosette/safe
+#lang rosette
 (require syntax/parse)
 (require (for-syntax syntax/parse))
 (require racket/syntax)
 (require (for-syntax (prefix-in rs: rosette)))
 (require (for-syntax (prefix-in rkt: racket/base)))
 (require (prefix-in blk: racket/block))
-
+(require syntax/wrap-modbeg)
+(require racket/stxparam)
+(require (for-syntax racket/stxparam))
 (provide 
  (rename-out [symb-def define-symbolic])
  (rename-out [quick-def def])
+ (rename-out [get-path get-constraints])
+ #%module-begin
  <
  >
  <=
@@ -16,36 +20,27 @@
  +
  -
  /
- *
- #%module-begin
  #%top-interaction
  #%app
  #%datum
  quote
- )
+ get-inputs)
 
 
-#;(define-syntax (symb-def stx)
-    (syntax-parse stx
-      [(_ (name arg:id ...) expr)
-       #:with n-tag (parse-bsl #'expr #'name)
-       #'(define (name arg ...) (local ((define saved arg))
-                                  (set! arg (local ((define-symbolic arg integer?))
-                                              (if (number? saved) saved arg)))) ... n-tag)]))
+(define-syntax-parameter tar #'#f)
+(define cont-prompt
+  (make-continuation-prompt-tag ))
 
-#;(define-syntax (symb-def stx)
-    (syntax-parse stx
-      [(_ (name arg:id ...) expr)
-       #:with n-tag (parse-bsl #'expr #'name)
-       #'(define-syntax (name stx)
-           (syntax-parse stx
-             [(_ app-arg (... ...))
-              #:with (inner-arg-id (... ...)) #'(arg ...)
-              #`(begin (define inner-arg-id app-arg) (... ...)
-                       (local ((define saved inner-arg-id))
-                         (set! inner-arg-id (local ((define-symbolic #,app-arg integer?))
-                                              (if (number? saved) saved inner-arg-id)))) (... ...)
-                                                                                         n-tag)]))]))
+(define-syntax get-path
+  (syntax-parser
+    [(_ name app)
+     #'(syntax-parameterize
+           [(tar #''name)] (call-with-continuation-prompt (λ() app #f) cont-prompt (λ(x) x)))]))
+
+(define-syntax get-inputs
+  (syntax-parser
+    [(_ name app)
+     #'(solve(assert(get-path name app)))]))
 
 (define-syntax (symb-def stx)
   (syntax-parse stx
@@ -55,16 +50,25 @@
          (syntax-parse stx
            [(name app-arg (... ...))
             #:with (inner-arg-id (... ...)) #'(arg ...)
+            #:fail-unless (equal? (length (attribute inner-arg-id))
+                                  (length (attribute  app-arg)))
+            (format "Arity mismatch expected: ~a received: ~a"
+                    (length (attribute inner-arg-id))
+                    (length (attribute  app-arg)))
             #:with ((det-args (... ...))
                     (det-names (... ...))
                     (undet-args (... ...))
                     (undet-names (... ...)))
             (split-args #'(inner-arg-id (... ...)) #'(app-arg (... ...)))
+            #:with b (syntax-parameter-value #'tar)
             #`(blk:block
-                (define det-names det-args) (... ...)
-                (define undet-names (local ((define-symbolic undet-args integer?)) undet-args))
-                (... ...)
-                n-tag)]))]))
+               (define det-names det-args) (... ...)
+               (define undet-names (local ((define-symbolic undet-args integer?)) undet-args))
+               (... ...)
+               (if (and (symbol? b)(symbol=? 'name b))
+                   (abort-current-continuation cont-prompt (pc))
+                   n-tag ))]))]))
+
 ;; An argList is:
 ;; [Listof [Listof Syntax] [Listof Syntax] [Listof Syntax] [Listof Syntax]]
 ;; Interpretation: The first list is the list of bound arguments.
@@ -112,19 +116,6 @@
                        (cons (first loi) undet-name))]))]))
   (define ret (split-list loi0 loa0))
   ret)
-
-#;(define-for-syntax (make-define def-args^ body^)
-    (define/syntax-parse (def-args ...) def-args^)
-    (define/syntax-parse body body^)
-    (syntax-parser
-      [(_ app-args ...) #'(let ([def-args app-args] ...) body)]))
-
-#;(define-syntax (symb-def stx)
-    (syntax-parser
-      [(_ (name arg:id ...) expr)
-       #:with n-tag (parse-bsl #'expr #'name)
-       #'(define-syntax name
-           (make-define #'(arg ...) #'n-tag))]))
 
 (define-for-syntax (make-qdef def-args^ body^)
   (define/syntax-parse (def-args ...) def-args^)
@@ -207,12 +198,21 @@
      #:with farg+ (parse-bsl #'farg cs)
      #:with sarg+ (parse-bsl #'sarg cs)
      #'(* farg+ sarg+)]
+    ;adds 1 to farg
+    [((~datum add1) farg)
+     #:with farg+ (parse-bsl #'farg cs)
+     #'(add1 farg+)]
+    ;subs 1 from farg
+    [((~datum sub1) farg)
+     #:with farg+ (parse-bsl #'farg cs)
+     #'(add1 farg+)] 
     ;determine if something parsed is a number
     [a:number #'a]
     [a:id #'a]
     [(nn:id args ...)
      #:with fname cs
      #:fail-unless (comp #'nn #'fname) "Recursion is currently not supported in SBL"
+     #:fail-when (and (not (identifier-binding #'nn)) #'nn) "Not bound"
      #'(nn args ...)]))
 
 

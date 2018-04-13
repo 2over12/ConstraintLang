@@ -1,5 +1,28 @@
 #lang s-exp "bslLow.rkt"
+;; Define some symbolic functions
+(define-symbolic (g a)  42)
+(define-symbolic (t b) (if0 (> b 4) 4 2))
+(define-symbolic (c a) (+ a 7))
+(define-symbolic (x c d) (if0 (>= (c d) 4 ) (t c) (g 1)))
+(define-symbolic (f a b) (if0 (< (sub1 a) 10) (x a b) 4))
 
-(define-symbolic (x c d) (if0 (<= c d) 12 3))
-(define-symbolic (func a ) (x (x 3 4) a))
-(func (x f 2))
+;; Examples of function calls
+#;(f i e)
+#;(f 1 2)
+#;(f i 2)
+#;(f a)
+
+;; There are no restrictions on the constraints, so returns #t
+#;(get-constraints g (g b))
+;; All inputs satisfy this case, so 
+#;(get-inputs g (g b))
+
+;; You can't get to g from f, therefore #f
+(get-constraints g (f i e))
+;; Since you can't get from f to g, you also don't have any inputs that
+;; will satisfy 
+(get-inputs g (f i e))
+
+
+
+
